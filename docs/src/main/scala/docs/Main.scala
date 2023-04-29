@@ -47,6 +47,8 @@ object Main {
     // In this case, at the same time as setting the TOC, we're also adding the pages to the site's router.
     site.toc = site.Toc(
       site.TocNodeLink(<.h1("Amdram"), site.HomeRoute),
+
+      "ping-pong" -> site.addPage("Ping Pong", pingpong)
     )
     
     // The site's home page is set separately, because many sites have more of a landing page (e.g. without a sidebar)

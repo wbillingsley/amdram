@@ -74,6 +74,9 @@ lazy val docs = project.in(file("docs"))
 
     scalacOptions ++= Seq("-unchecked", "-deprecation"),
 
+    // As we're doing concurrency, let's load a fair executor
+    libraryDependencies += "org.scala-js" %%% "scala-js-macrotask-executor" % "1.1.1",
+
     deployFast := {
       val opt = (Compile / fastLinkJS).value
       (
