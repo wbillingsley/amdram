@@ -8,14 +8,13 @@ import com.wbillingsley.amdram.*
 
 import org.scalajs.macrotaskexecutor.MacrotaskExecutor.Implicits._
 
-object ppGroup extends ActorGroup() with DHtmlComponent {
+object pingPongTroupe extends SingleEcTroupe() with DHtmlComponent {
 
     val running = stateVariable(false)
 
     override def render = {
         // A dirty trick doing this inside the render
         if running.value then 
-            workLoop()
             requestUpdate()
 
         <.div(
@@ -28,39 +27,39 @@ object ppGroup extends ActorGroup() with DHtmlComponent {
 
 }
 
-lazy val pong = ppGroup.spawnLoop((message:String) => {
+lazy val pong = pingPongTroupe.spawnLoop((message:String) => {
     ping ! "ping"
     println(message)
 })
 
-def pingHandler(n:Int):MessageHandler[String] = n match {
-    case 0 => MessageHandler[String] { (s) =>
-        val ctx = summon[ActorContext]
+def pingHandler(n:Int, pong:Recipient[String]):MessageHandler[String] = n match {
+    case 0 => MessageHandler { (s, ctx) =>
         pong ! "finished"
         println("ping received " + s)
         println("ping finished")
         ctx.terminate()
     }
     case n => MessageHandler[String] { (s) =>
-        val ctx = summon[ActorContext]
-
         pong ! "ping"
         println("pong " + n)
-        pingHandler(n - 1)
+        pingHandler(n - 1, pong)
     }
 }
 
-lazy val ping = ppGroup.spawn(pingHandler(5))
+lazy val ping:Recipient[String] = pingPongTroupe.spawn(pingHandler(5, pong))
 
 
 
 
 val pingpong = <.div(
-    <.article(
-        """|This page will show some docs"
+    marked.div(
+        """|## Ping pong demo
+           |
+           |This is just a testing demo, which happens inside the console. It'll hopefully be turned into something more 
+           |useful in a future update.
         """.stripMargin
     ),
-    ppGroup,
+    pingPongTroupe,
     <.div(
         <.button("Send", ^.on.click --> { ping.send("Hello") })
     )

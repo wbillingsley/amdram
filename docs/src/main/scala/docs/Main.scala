@@ -48,12 +48,12 @@ object Main {
     site.toc = site.Toc(
       site.TocNodeLink(<.h1("Amdram"), site.HomeRoute),
 
-      "ping-pong" -> site.addPage("Ping Pong", pingpong)
+      "ping-pong" ->site.addPage("Ping Pong", pingpong)
     )
     
     // The site's home page is set separately, because many sites have more of a landing page (e.g. without a sidebar)
     // In this case, though, we just tell it to render the Intro page as the homepage.
-    site.home = () => site.renderPage(<.p("Hello"))
+    site.home = () => site.renderPage(home)
     
     // Install our custom CSS - note this is the stylings we've created in our custom widgets (rather than the 
     // sidebar styles, which the site will install when we attach it to the DOM)

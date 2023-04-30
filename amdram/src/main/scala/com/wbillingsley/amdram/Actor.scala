@@ -4,137 +4,54 @@ import scala.concurrent.*
 import scala.collection.immutable.{Queue, Set}
 
 
-/** Something you can send messages to */
-trait Recipient[-T] {
-    def send(message:T):Unit
 
-    def !(message:T):Unit = send(message)
-}
-
-
-/**
-  * A group of actors schedules its work on a particular execution context
-  *
-  * @param ec
-  */
-class ActorGroup(using ec:ExecutionContext) {
-  
-    private var actors:Set[Actor[_]] = Set.empty
-
-    def spawnLoop[T](f: T => ActorContext ?=> Unit):Recipient[T] = 
-                    val a = Actor.constant(f)
-                    enlist(a)
-                    a.self
-
-    def spawn[T](handler:MessageHandler[T]):Recipient[T] = 
-        val a = Actor.receive(handler)
-        enlist(a)
-        a.self
-
-    /** 
-     * The workloop for an ActorSystem asks all its actors to process a message.
-     * How frequently this is called is left for implementors - for instance in Scala.js we will sometimes
-     * find it helpful to schedule it in an animator to make work visible.
-     */
-    def workLoop():Unit = {
-        for actor <- actors if !actor.idle do
-            given context:ActorContext = new ActorContext {
-
-                export ActorGroup.this.spawn
-
-                export ActorGroup.this.spawnLoop
-
-                def terminate():Unit = 
-                    delist(actor)
-            }
-            ec.execute(() => actor.workLoop())
-    }
-
-    def enlist[T](actor:Actor[T]):Unit = 
-        synchronized {
-            actors = actors + actor
-        }
-
-    def delist[T](actor:Actor[T]):Unit = 
-        synchronized {
-            actors = actors - actor
-        }
-
-}
-
-trait ActorContext {
-
-    def spawnLoop[T](f: T => ActorContext ?=> Unit):Recipient[T]
-
-    def spawn[T](handler:MessageHandler[T]):Recipient[T]
-
-    def terminate():Unit
-
-}
-
-
-/**
-  * Fundamental to Actors in Erlang is what to do when you receive a message.
-  * From the ping-pong example in the Erlang docs, we also need to enable the
-  * case where an Actor changes to a different message handler at the end -
-  * so we'll give receive a return type of the next MessageHandler.
-  */
-trait MessageHandler[-T] {
-    def receive(message:T)(using ac: ActorContext): MessageHandler[T] | Unit
-}
-
-object MessageHandler {
-    def apply[T](f: T => ActorContext ?=> MessageHandler[T] | Unit) = {
-        new MessageHandler[T] {
-            override def receive(message:T)(using ac:ActorContext) = 
-                f.apply(message).apply
-        }     
-    }
-}
-
-
-class Inbox[T] extends Recipient[T] {
-    /** The actor's inbox of messages to respond to */
-    private var queue:Queue[T] = Queue.empty
-
-    def isEmpty = queue.isEmpty
-
-    def size = queue.size
-
-    /** Sends this actor a message, putting it into its inbox. */
-    override def send(message:T):Unit = {
-        synchronized {
-            queue = queue.enqueue(message)
-        }
-    }
-
-    def pop():T = synchronized { 
-        val (m, q) = queue.dequeue
-        queue = q
-        m
-    }
-
-}
-
-trait Actor[-T](inbox:Inbox[T]) {
+trait Actor[T](inbox:Inbox[T]) {
 
     def self:Recipient[T] = inbox
 
     /** An Actor is idle if it has nothing to do. */
     final def idle = inbox.isEmpty
 
-    /** Takes a task from the queue and performs it. */
-    final def workLoop()(using context:ActorContext):Unit = {
-        // We don't run actors in parallel, so we just need to keep ourselves synchronised with any additions
-        if !inbox.isEmpty then receive(inbox.pop())
+    @volatile private var currentMessage:Option[T] = None
+
+    @volatile private var alive = true
+
+    @volatile private var scheduled = false
+
+    def busy:Boolean  = synchronized { currentMessage.nonEmpty }
+
+    def stop():Unit = synchronized { alive = false }
+
+    def start()(using ac:ActorContext[T], ec:ExecutionContext):Unit = synchronized { 
+        alive = true
+        schedule()
     }
 
-    def receive(message:T):ActorContext ?=> Unit
+    def schedule()(using ac:ActorContext[T], ec:ExecutionContext):Unit = synchronized {
+        if !scheduled then
+            scheduled = true
+            ec.execute(() => workLoop())
+    }
+
+    /** Takes a task from the queue and performs it. */
+    private def workLoop()(using context:ActorContext[T], ec:ExecutionContext):Unit = {
+        currentMessage = synchronized {
+            scheduled = false
+            if inbox.isEmpty then None else Some(inbox.pop())
+        }
+
+        for m <- currentMessage do receive(m)
+
+        // TODO: Make this only schedule work if there's more to do (but that requires our inbox to wake us up if new work comes in)
+        if alive then schedule()
+    }
+
+    def receive(message:T):ActorContext[T] ?=> Unit
 }
 
 object Actor {
 
-    def constant[T](f: T => ActorContext ?=> Unit):Actor[T] = {
+    def constant[T](f: T => ActorContext[T] ?=> Unit):Actor[T] = {
         val inbox = new Inbox[T]
         new Actor[T](inbox) {
             def receive(msg:T) = 
@@ -147,7 +64,7 @@ object Actor {
         new Actor(inbox) {
             var handler:MessageHandler[T] = h
             
-            override def receive(msg:T) = (ac:ActorContext) ?=>
+            override def receive(msg:T) = (ac:ActorContext[T]) ?=>
                 this.handler = handler.receive(msg) match {
                     case _:Unit => this.handler
                     case mh:MessageHandler[T] @unchecked => mh
@@ -155,18 +72,33 @@ object Actor {
         }
     }
 
+    def context[T](actor:Actor[T], group:Troupe):ActorContext[T] = new ActorContext {
+        def self = actor.self
+
+        def terminate() = 
+            actor.stop()
+
+        export group.spawn
+        export group.spawnLoop
+    }
+
 }
 
-extension [T] (a:Actor[T]) {
+extension [M] (a:Recipient[M]) {
 
-    def ask(message:T)(using ag:ActorContext):Future[Any] = {
-        val p = Promise[Any]
-        ag.spawnLoop[Any] { reply =>
-            p.success(reply)
+    inline def ask[T, R](message:M)(using ag:ActorContext[T]):Future[R] = {
+        val p = Promise[R]
+        ag.spawnLoop[R] { reply =>
+            reply match {
+                case r:R => p.success(reply)
+                case other:Any => p.failure(IllegalArgumentException(s"Unexpected reply $other"))
+            }
             ag.terminate()
         }
+        a.send(message)
         p.future
     }
 
+    inline def ?[T, R](message:M)(using ag:ActorContext[T]):Future[R] = ask(message)(using ag)
 
 }
