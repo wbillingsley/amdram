@@ -39,7 +39,7 @@ jobs:
       # Runs a set of commands using the runners shell
       - name: Compile the deck to JavaScript
         run: |
-          sbt "docs / deployFull"
+          sbt "amdramDocsJS / deployFull"
           mv .github/workflows/.gitignore.gh-pages .gitignore
 
       # Deploy to gh-pages branch
