@@ -84,21 +84,30 @@ object Actor {
 
 }
 
-extension [M] (a:Recipient[M]) {
+class OneTime[R] extends MessageHandler[R] {
+    private val p = Promise[R]
 
-    inline def ask[T, R](message:M)(using ag:ActorContext[T]):Future[R] = {
-        val p = Promise[R]
-        ag.spawnLoop[R] { reply =>
-            reply match {
-                case r:R => p.success(reply)
-                case other:Any => p.failure(IllegalArgumentException(s"Unexpected reply $other"))
-            }
-            ag.terminate()
-        }
-        a.send(message)
-        p.future
+    override def receive(message:R)(using ac: ActorContext[R]) = {
+        p.success(message)
+        ac.terminate()
     }
 
-    inline def ?[T, R](message:M)(using ag:ActorContext[T]):Future[R] = ask(message)(using ag)
+    def future = p.future
+}
+
+// val rb = oneTimeReply[String]
+// pong ! ("Hello", rb)
+
+
+extension [M] (a:Recipient[M]) {
+
+    inline def ask[T, R](message: Recipient[R] => M)(using sm:SpawnMethods):Future[R] = {
+        val ot = OneTime[R]
+        val replyActor = sm.spawn(ot)
+        a.send(message(replyActor))
+        ot.future
+    }
+
+    inline def ?[T, R](message:Recipient[R] => M)(using sm:SpawnMethods):Future[R] = ask(message)(using sm)
 
 }
