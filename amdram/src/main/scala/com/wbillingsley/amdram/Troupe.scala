@@ -3,11 +3,9 @@ package com.wbillingsley.amdram
 import scala.concurrent.*
 
 /**
-  * A system of actors, which we've punningly called a Troupe.
-  *
-  * @param ec
+  * The methods that spawning contexts support
   */
-trait Troupe {
+trait SpawnMethods {
 
     /** Spawns an actor that will always use the same handling function */
     def spawnLoop[T](f: T => ActorContext[T] ?=> Unit):Recipient[T]
@@ -16,6 +14,13 @@ trait Troupe {
     def spawn[T](handler:MessageHandler[T]):Recipient[T]
 
 }
+
+/**
+  * A system of actors, which we've punningly called a Troupe.
+  *
+  * @param ec
+  */
+trait Troupe extends SpawnMethods
 
 
 /**

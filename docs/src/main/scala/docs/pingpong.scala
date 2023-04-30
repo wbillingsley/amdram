@@ -7,6 +7,7 @@ import html.*
 import com.wbillingsley.amdram.*
 
 import org.scalajs.macrotaskexecutor.MacrotaskExecutor.Implicits._
+import scala.concurrent.*
 
 object pingPongTroupe extends SingleEcTroupe() with DHtmlComponent {
 
@@ -48,8 +49,10 @@ def pingHandler(n:Int, pong:Recipient[String]):MessageHandler[String] = n match 
 
 lazy val ping:Recipient[String] = pingPongTroupe.spawn(pingHandler(5, pong))
 
-
-
+lazy val echo = pingPongTroupe.spawnLoop[(String, Recipient[String])] { (message, sender) => 
+    sender ! s"Echo $message"
+    println(message)
+}
 
 val pingpong = <.div(
     marked.div(
@@ -62,6 +65,14 @@ val pingpong = <.div(
     pingPongTroupe,
     <.div(
         <.button("Send", ^.on.click --> { ping.send("Hello") })
+    ),
+    <.div(
+        <.button("Echo", ^.on.click --> { 
+            given SpawnMethods = pingPongTroupe
+
+            val f:Future[String] = echo.ask((r) => ("Hello", r))
+            f.foreach(m => println(s"Completed with $m")) 
+        })
     )
 
 

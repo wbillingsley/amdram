@@ -48,18 +48,18 @@ val home = <.div(
            |By using different kinds of troupe, we can run systems of actors in different situations: e.g. running on lots of virtual threads using Project Loom,
            |or all running in a microtask evaluator in single-threaded Scala.js
            |
-           |In the initial version, a troupe's interface is simply defined as
+           |In the initial version, a troupe's interface is simply defined as having the spawn methods for launching actors
            |
            |```scala
-           |trait Troupe {
-           |
+           |trait SpawnMethods {
            |    /** Spawns an actor that will always use the same handling function */
            |    def spawnLoop[T](f: T => ActorContext[T] ?=> Unit):Recipient[T]
            |
            |    /** Spawns a handler that might work like a finite state machine, producing a different handler after each invocation */
            |    def spawn[T](handler:MessageHandler[T]):Recipient[T]
-           |
            |}
+           |
+           |trait Troupe extends SpawnMethods
            |```
            |
            |You'll notice there are *two* methods for spawning new actors. This is trying to ensure we can handle things like the ping-pong example.
@@ -214,6 +214,21 @@ val home = <.div(
            |
            |Instead, if you want to implement your actor as an object or class extending a `Trait`, just extend `MessageHandler[T]` and spawn it.
            |
+           |### OneTime
+           |
+           |Sometimes, you might want an actor to wait for one message, converting it into a `Future[Message]`. 
+           |For this, there is the `OneTime` message handler. 
+           |
+           |```scala
+           |val oneTime = OneTime[String]
+           |val recipient = troupe.spawn(oneTime)
+           |
+           |// ...
+           |
+           |for value <- oneTime.future do
+           |  println(value)
+           |```
+           |
            |### The ask pattern
            |
            |Sometimes, an actor might want to ask another actor a question, getting the reply in a `Future[R]`
@@ -225,31 +240,30 @@ val home = <.div(
            |val reply = destination.ask[Reply](message) // Future[Reply]
            |```
            |
-           |It works by spawning a temporary actor whose only job is to wait to receive the reply.
+           |It works by spawning a `OneTime` actor whose only job is to wait to receive the reply.
            |
            |The code of the inlined method is:
            |
            |```scala
            |extension [M] (a:Recipient[M]) {
            |
-           |    inline def ask[T, R](message:M)(using ag:ActorContext[T]):Future[R] = {
-           |        val p = Promise[R]
-           |        ag.spawnLoop[R] { reply =>
-           |            reply match {
-           |                case r:R => p.success(reply)
-           |                case other:Any => p.failure(IllegalArgumentException(s"Unexpected reply $other"))
-           |            }
-           |            ag.terminate()
-           |        }
-           |        a.send(message)
-           |        p.future
+           |    inline def ask[T, R](message: Recipient[R] => M)(using sm:SpawnMethods):Future[R] = {
+           |        val ot = OneTime[R]
+           |        val replyActor = sm.spawn(ot)
+           |        a.send(message(replyActor))
+           |        ot.future
            |    }
            |
-           |    inline def ?[T, R](message:M)(using ag:ActorContext[T]):Future[R] = ask(message)(using ag)
-           |
+           |    inline def ?[T, R](message:Recipient[R] => M)(using sm:SpawnMethods):Future[R] = ask(message)(using sm)
            |}
            |```
            |
+           |It can be called, for instance, with
+           |
+           |```scala
+           |val f:Future[String] = echo.ask((r) => ("Hello", r))
+           |f.foreach(m => println(s"Completed with $m")) 
+           |```
            |
            |""".stripMargin
 
