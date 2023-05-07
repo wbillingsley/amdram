@@ -22,32 +22,31 @@ trait Actor[T] {
 
     @volatile private var scheduled = false
 
-    def busy:Boolean  = synchronized { currentMessage.nonEmpty }
+    def busy:Boolean  = currentMessage.nonEmpty
 
-    def stop():Unit = synchronized { alive = false }
+    def stop():Unit = { 
+        alive = false 
+    }
 
-    def start()(using ac:ActorContext[T], ec:ExecutionContext):Unit = synchronized { 
-        alive = true
+    def start()(using ac:ActorContext[T], ec:ExecutionContext):Unit = { 
         schedule()
     }
 
-    def schedule()(using ac:ActorContext[T], ec:ExecutionContext):Unit = synchronized {
-        if !scheduled then
-            // println(s"$_id woke up")
-            scheduled = true
-            ec.execute(() => workLoop())
-            // println(s"$_id scheduled")
+    def schedule()(using ac:ActorContext[T], ec:ExecutionContext):Unit = {
+
+        // Note - at the moment, we don't care if we've already been scheduled.
+        // The workloop only does serious work if it finds a message, so a few excess workloops is cheap.
+
+        ec.execute(() => workLoop())
+        scheduled = true
     }
 
     /** Takes a task from the queue and performs it. */
-    private def workLoop()(using context:ActorContext[T], ec:ExecutionContext):Unit = {
+    private def workLoop()(using context:ActorContext[T], ec:ExecutionContext):Unit = synchronized {
         // println(s"$_id entered workloop")
-        currentMessage = synchronized {
-            scheduled = false
-            inbox.pop()
-        }
+        scheduled = false // We can no longer be sure future workloops have been scheduled
 
-        currentMessage match {
+        inbox.pop() match {
             case Some(m) => 
                 // println(s"$_id processing $m")
                 receive(m)
@@ -56,11 +55,7 @@ trait Actor[T] {
         }
 
         // TODO: Make this only schedule work if there's more to do (but that requires our inbox to wake us up if new work comes in)
-        if alive then
-            if inbox.isEmpty then
-                ()
-                // TODO: add low-level logging // println(s"$_id went to sleep") 
-            else schedule()
+        if alive && !inbox.isEmpty then schedule()
     }
 
     def receive(message:T):ActorContext[T] ?=> Unit
