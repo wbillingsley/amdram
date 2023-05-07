@@ -3,9 +3,12 @@ package com.wbillingsley.amdram
 import scala.concurrent.*
 import scala.collection.immutable.{Queue, Set}
 
+import scala.util.Random
 
 
 trait Actor[T] {
+
+    val _id:String = Random.alphanumeric.take(12).mkString
 
     def inbox:Inbox[T] 
 
@@ -30,21 +33,34 @@ trait Actor[T] {
 
     def schedule()(using ac:ActorContext[T], ec:ExecutionContext):Unit = synchronized {
         if !scheduled then
+            // println(s"$_id woke up")
             scheduled = true
             ec.execute(() => workLoop())
+            // println(s"$_id scheduled")
     }
 
     /** Takes a task from the queue and performs it. */
     private def workLoop()(using context:ActorContext[T], ec:ExecutionContext):Unit = {
+        // println(s"$_id entered workloop")
         currentMessage = synchronized {
             scheduled = false
-            if inbox.isEmpty then None else Some(inbox.pop())
+            inbox.pop()
         }
 
-        for m <- currentMessage do receive(m)
+        currentMessage match {
+            case Some(m) => 
+                // println(s"$_id processing $m")
+                receive(m)
+            case None => 
+                // println(s"$_id's inbox was empty")
+        }
 
         // TODO: Make this only schedule work if there's more to do (but that requires our inbox to wake us up if new work comes in)
-        if alive && !inbox.isEmpty then schedule()
+        if alive then
+            if inbox.isEmpty then
+                ()
+                // TODO: add low-level logging // println(s"$_id went to sleep") 
+            else schedule()
     }
 
     def receive(message:T):ActorContext[T] ?=> Unit
@@ -74,9 +90,6 @@ class OneTime[R] extends MessageHandler[R] {
 
     def future = p.future
 }
-
-// val rb = oneTimeReply[String]
-// pong ! ("Hello", rb)
 
 
 extension [M] (a:Recipient[M]) {

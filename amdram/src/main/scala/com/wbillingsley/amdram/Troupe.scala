@@ -40,7 +40,6 @@ class SingleEcTroupe(using ec:ExecutionContext) extends Troupe {
           f(msg)
       }
 
-
       enlist(a)
       a.start()(using Actor.context(a, this))
       a.self
@@ -49,12 +48,14 @@ class SingleEcTroupe(using ec:ExecutionContext) extends Troupe {
       val a = new Actor[T] {
         override val inbox = new Inbox[T](_ => this.schedule()(using Actor.context(this, SingleEcTroupe.this), ec))
 
-        var handler:MessageHandler[T] = handler
+        @volatile private var _handler:MessageHandler[T] = handler
         
         override def receive(msg:T) = (ac:ActorContext[T]) ?=>
-          this.handler = handler.receive(msg) match {
-            case _:Unit => this.handler
-            case mh:MessageHandler[T] @unchecked => mh
+          _handler.receive(msg) match {
+            case mh:MessageHandler[T] @unchecked => 
+              _handler = mh
+            case _ => 
+              // do nothing
           }
       }
       enlist(a)
