@@ -1,9 +1,11 @@
 package com.wbillingsley.amdram
 import scala.collection.immutable.{Queue, Set}
 
+import java.util.concurrent.ConcurrentLinkedQueue
+
 class Inbox[T](onReceive: T => Unit = { (_:T) => () }) extends Recipient[T] {
     /** The actor's inbox of messages to respond to */
-    @volatile private var queue:Queue[T] = Queue.empty
+    private val queue:ConcurrentLinkedQueue[T] = ConcurrentLinkedQueue()
 
     def isEmpty = queue.isEmpty
 
@@ -11,16 +13,12 @@ class Inbox[T](onReceive: T => Unit = { (_:T) => () }) extends Recipient[T] {
 
     /** Sends this actor a message, putting it into its inbox. */
     override def send(message:T):Unit = {
-        synchronized {
-            queue = queue.enqueue(message)
-            onReceive(message)
-        }
+        queue.add(message)
+        onReceive(message)
     }
 
-    def pop():T = synchronized { 
-        val (m, q) = queue.dequeue
-        queue = q
-        m
+    def pop():Option[T] = {
+        Option(queue.poll())
     }
 
 }
