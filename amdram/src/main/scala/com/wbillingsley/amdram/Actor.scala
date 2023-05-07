@@ -5,12 +5,13 @@ import scala.collection.immutable.{Queue, Set}
 
 
 
-trait Actor[T](inbox:Inbox[T]) {
+trait Actor[T] {
+
+    def inbox:Inbox[T] 
 
     def self:Recipient[T] = inbox
 
-    /** An Actor is idle if it has nothing to do. */
-    final def idle = inbox.isEmpty
+    def idle:Boolean = inbox.isEmpty
 
     @volatile private var currentMessage:Option[T] = None
 
@@ -43,34 +44,13 @@ trait Actor[T](inbox:Inbox[T]) {
         for m <- currentMessage do receive(m)
 
         // TODO: Make this only schedule work if there's more to do (but that requires our inbox to wake us up if new work comes in)
-        if alive then schedule()
+        if alive && !inbox.isEmpty then schedule()
     }
 
     def receive(message:T):ActorContext[T] ?=> Unit
 }
 
 object Actor {
-
-    def constant[T](f: T => ActorContext[T] ?=> Unit):Actor[T] = {
-        val inbox = new Inbox[T]
-        new Actor[T](inbox) {
-            def receive(msg:T) = 
-                f(msg)
-        }
-    }
-
-    def receive[T](h:MessageHandler[T]):Actor[T] = {
-        val inbox = new Inbox[T]
-        new Actor(inbox) {
-            var handler:MessageHandler[T] = h
-            
-            override def receive(msg:T) = (ac:ActorContext[T]) ?=>
-                this.handler = handler.receive(msg) match {
-                    case _:Unit => this.handler
-                    case mh:MessageHandler[T] @unchecked => mh
-                }
-        }
-    }
 
     def context[T](actor:Actor[T], group:Troupe):ActorContext[T] = new ActorContext {
         def self = actor.self

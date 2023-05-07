@@ -60,6 +60,9 @@ lazy val amdramJVM = amdram.jvm
 lazy val jsui = crossProject(JSPlatform).crossType(CrossType.Pure).in(file("jsui"))
   .dependsOn(amdram)
   .settings(commonSettings:_*)
+  .settings(
+    publish / skip := true,
+  )
   .jsSettings(
 
     libraryDependencies ++= Seq(
@@ -72,6 +75,14 @@ lazy val jsui = crossProject(JSPlatform).crossType(CrossType.Pure).in(file("jsui
     scalaJSUseMainModuleInitializer := false,
   )
 
+lazy val jvmplay = project.in(file("jvmplay"))
+  .dependsOn(amdramJVM)
+  .settings(commonSettings:_*)
+  .settings(
+    publish / skip := true,
+
+    Compile / run / fork := true
+  )
 
 lazy val jsuiJS = jsui.js
 

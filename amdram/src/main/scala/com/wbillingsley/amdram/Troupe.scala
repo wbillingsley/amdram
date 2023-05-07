@@ -33,16 +33,33 @@ class SingleEcTroupe(using ec:ExecutionContext) extends Troupe {
     private var actors:Set[Actor[_]] = Set.empty
 
     def spawnLoop[T](f: T => ActorContext[T] ?=> Unit):Recipient[T] = 
-                    val a = Actor.constant(f)
-                    enlist(a)
-                    a.start()(using Actor.context(a, this))
-                    a.self
+      val a = new Actor[T] {
+        override val inbox = new Inbox[T](_ => this.schedule()(using Actor.context(this, SingleEcTroupe.this), ec))
+
+        def receive(msg:T) = 
+          f(msg)
+      }
+
+
+      enlist(a)
+      a.start()(using Actor.context(a, this))
+      a.self
 
     def spawn[T](handler:MessageHandler[T]):Recipient[T] = 
-        val a = Actor.receive(handler)
-        enlist(a)
-        a.start()(using Actor.context(a, this))
-        a.self
+      val a = new Actor[T] {
+        override val inbox = new Inbox[T](_ => this.schedule()(using Actor.context(this, SingleEcTroupe.this), ec))
+
+        var handler:MessageHandler[T] = handler
+        
+        override def receive(msg:T) = (ac:ActorContext[T]) ?=>
+          this.handler = handler.receive(msg) match {
+            case _:Unit => this.handler
+            case mh:MessageHandler[T] @unchecked => mh
+          }
+      }
+      enlist(a)
+      a.start()(using Actor.context(a, this))
+      a.self
 
 
     def enlist[T](actor:Actor[T]):Unit = 
