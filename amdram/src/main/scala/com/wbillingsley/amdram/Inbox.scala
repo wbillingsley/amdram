@@ -3,7 +3,7 @@ import scala.collection.immutable.{Queue, Set}
 
 class Inbox[T](onReceive: T => Unit = { (_:T) => () }) extends Recipient[T] {
     /** The actor's inbox of messages to respond to */
-    private var queue:Queue[T] = Queue.empty
+    @volatile private var queue:Queue[T] = Queue.empty
 
     def isEmpty = queue.isEmpty
 
@@ -13,6 +13,7 @@ class Inbox[T](onReceive: T => Unit = { (_:T) => () }) extends Recipient[T] {
     override def send(message:T):Unit = {
         synchronized {
             queue = queue.enqueue(message)
+            onReceive(message)
         }
     }
 
